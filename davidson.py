@@ -1,103 +1,111 @@
 #!/bin/python
-
-from __future__ import division
-import math
 import numpy as np
-import time
-
-''' Block Davidson, Joshua Goings (2013)
-
-    Block Davidson method for finding the first few
-	lowest eigenvalues of a large, diagonally dominant,
-    sparse Hermitian matrix (e.g. Hamiltonian)
-'''
-
-n = 1200				# Dimension of matrix
-tol = 1e-8				# Convergence tolerance
-mmax = n//2				# Maximum number of iterations	
-
-''' Create sparse, diagonally dominant matrix A with 
-	diagonal containing 1,2,3,...n. The eigenvalues
-    should be very close to these values. You can 
-    change the sparsity. A smaller number for sparsity
-    increases the diagonal dominance. Larger values
-    (e.g. sparsity = 1) create a dense matrix
-'''
-
-sparsity = 0.0001
-A = np.zeros((n,n))
-for i in range(0,n):
-    A[i,i] = i + 1 
-A = A + sparsity*np.random.randn(n,n) 
-A = (A.T + A)/2 
 
 
-k = 8					# number of initial guess vectors 
-eig = 4					# number of eignvalues to solve 
-t = np.eye(n,k)			# set of k unit vectors as guess
-V = np.zeros((n,n))		# array of zeros to hold guess vec
-I = np.eye(n)			# identity matrix same dimen as A
+def digaonal_dominant(n,sparsity=1E-4):
+    
+    A = np.zeros((n,n))
+    for i in range(0,n):
+        A[i,i] = i + 1 
+    A = A + sparsity*np.random.randn(n,n) 
+    A = (A.T + A)/2 
+    return A
 
-# Begin block Davidson routine
 
-start_davidson = time.time()
+def davidson_solver(A, neigen, tol=1E-6, itermax = 1000):
+    """Davidosn solver for eigenvalue problem
 
-for m in range(k,mmax,k):
+    Args :
+        A (numpy matrix) : the matrix to diagonalize
+        neigen (int)     : the number of eigenvalue requied
+        tol (float)      : the rpecision required
+        itermax (int)    : the maximum number of iteration
+    Returns :
+        eigenvalues (array) : lowest eigenvalues
+        eigenvectors (numpy.array) : eigenvectors
+    """
+    n = A.shape[0]
+    k = 2*neigen            # number of initial guess vectors 
+    V = np.eye(n,k)         # set of k unit vectors as guess
+    I = np.eye(n)           # identity matrix same dimen as A
+    Adiag = np.diag(A)
 
-    if m <= k:
+    # Begin block Davidson routine
+    for i in range(itermax):
+    
+        # QR of V t oorthonormalize the V matrix
+        # this uses GrahmShmidtd in the back
+        V,R = np.linalg.qr(V)
 
-        # Create the V matrix by renormalizeall all the trial vectors
-        for j in range(0,k):
-            V[:,j] = t[:,j]/np.linalg.norm(t[:,j])
-        theta_old = 1 
+        # form the projected matrix 
+        T = np.dot(V.T,np.dot(A,V))
 
-    elif m > k:
-        theta_old = theta[:eig]
+        # Diagonalize the projected matrix
+        theta,s = np.linalg.eigh(T)
 
-    # QR of V t oorthonormalize the V matrix
-    # this uses GrahmShmidtd in the back
-    V,R = np.linalg.qr(V)
+        # Ritz eigenvector
+        q = np.dot(V,s)
 
-    # for the projected matrix why the m+1?
-    T = np.dot(V[:,:(m+1)].T,np.dot(A,V[:,:(m+1)]))
+        # compute the residual append append it to the 
+        # set of eigenvectors
+        norm = 0
+        for j in range(k):
 
-    # Diagonalize the projected matrix
-    THETA,S = np.linalg.eig(T)
+            # residue vetor
+            res = np.dot((A - theta[j]*I),q[:,j]) 
+            norm += np.linalg.norm(res)/k
 
-    # sort the eigenvalues (necessary ?)
-    idx = THETA.argsort()
-    theta = THETA[idx]
-    s = S[:,idx]
+            # correction vector
+            delta = res / (theta[j]-Adiag)
+            delta /= np.linalg.norm(delta)
 
-    # compute the residual and append it to the 
-    # set of eigenvectors
-    for j in range(0,k):
-        w = np.dot((A - theta[j]*I),np.dot(V[:,:(m+1)],s[:,j])) 
-        q = w/(theta[j]-A[j,j])
-        V[:,(m+j+1)] = q
+            # store the correction vectors
+            if(j==0):
+                Q = delta
+            else:
+                Q = np.vstack((Q,delta))
 
-    # comute the norm to se if eigenvalue converge
-    norm = np.linalg.norm(theta[:eig] - theta_old)
-    if norm < tol:
-        break
+        # comute the norm to se if eigenvalue converge
+        print("iteration %03d dim %03d norm : %e/%e" %(i,V.shape[1],norm,tol))
+        if norm < tol:
+            break
 
-end_davidson = time.time()
+        #append the correction vectors to the basis
+        V = np.hstack((V,Q.T))
+        #V = np.hstack((q,Q.T))
+        
 
-# End of block Davidson. Print results.
+    return theta[:neigen], q[:,:neigen]
 
-print("davidson = ", theta[:eig],";",\
-    end_davidson - start_davidson, "seconds")
 
-# Begin Numpy diagonalization of A
+if __name__ == "__main__":
+ 
+    import time
+    import argparse
 
-start_numpy = time.time()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-s","--size",type=int,help='Size of the matrix',default=100)
+    parser.add_argument("-n","--neigen",type=int,help='number of eigenvalues required',default=5)
+    parser.add_argument("-e","--eps",type=float,help='Sparsity of the matrix',default=1E-2)
+    args = parser.parse_args()
 
-E,Vec = np.linalg.eig(A)
-E = np.sort(E)
+    N = args.size
+    eps = args.eps
+    neigen = args.neigen
 
-end_numpy = time.time()
+    
+    A = digaonal_dominant(N,eps)
 
-# End of Numpy diagonalization. Print results.
+    start_davidson = time.time()
+    eigenvalues, eigenvectors = davidson_solver(A,neigen)
+    end_davidson = time.time()
+    print("davidson : ", end_davidson - start_davidson, " seconds")
 
-print("numpy = ", E[:eig],";",\
-     end_numpy - start_numpy, "seconds")
+    # Begin Numpy diagonalization of A
+    start_numpy = time.time()
+    E,Vec = np.linalg.eigh(A)
+    end_numpy = time.time()
+    print("numpy : ", end_numpy - start_numpy, " seconds")
+
+    for i in range(neigen):
+        print("%d % f  % f" %(i,eigenvalues[i],E[i]))
