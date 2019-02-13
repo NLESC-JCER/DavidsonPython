@@ -11,8 +11,16 @@ def digaonal_dominant(n,sparsity=1E-4):
     A = (A.T + A)/2 
     return A
 
+def jacobi_correction(uj,A,thetaj):
+    I = np.eye(A.shape[0])
+    Pj = I-np.dot(uj,uj.T)
+    rj = np.dot((A - thetaj*I),uj) 
 
-def davidson_solver(A, neigen, tol=1E-6, itermax = 1000):
+    w = np.dot(Pj,np.dot((A-thetaj*I),Pj))
+    return np.linalg.solve(w,rj)
+
+
+def davidson_solver(A, neigen, tol=1E-6, itermax = 1000, jacobi=False):
     """Davidosn solver for eigenvalue problem
 
     Args :
@@ -20,6 +28,7 @@ def davidson_solver(A, neigen, tol=1E-6, itermax = 1000):
         neigen (int)     : the number of eigenvalue requied
         tol (float)      : the rpecision required
         itermax (int)    : the maximum number of iteration
+        jacobi (bool)    : do the jacobi correction
     Returns :
         eigenvalues (array) : lowest eigenvalues
         eigenvectors (numpy.array) : eigenvectors
@@ -30,7 +39,12 @@ def davidson_solver(A, neigen, tol=1E-6, itermax = 1000):
     I = np.eye(n)           # identity matrix same dimen as A
     Adiag = np.diag(A)
 
+    print('\n'+'='*20)
+    print("= Davidson Solver ")
+    print('='*20)
+
     # Begin block Davidson routine
+    print("iter size norm (%e)" %tol)
     for i in range(itermax):
     
         # QR of V t oorthonormalize the V matrix
@@ -56,25 +70,21 @@ def davidson_solver(A, neigen, tol=1E-6, itermax = 1000):
             norm += np.linalg.norm(res)/k
 
             # correction vector
-            delta = res / (theta[j]-Adiag)
+            if(jacobi):
+            	delta = jacobi_correction(q[:,j],A,theta[j])
+            else:
+            	delta = res / (theta[j]-Adiag)
             delta /= np.linalg.norm(delta)
 
-            # store the correction vectors
-            if(j==0):
-                Q = delta
-            else:
-                Q = np.vstack((Q,delta))
+            # expand the basis
+            V = np.hstack((V,delta.reshape(-1,1)))
 
         # comute the norm to se if eigenvalue converge
-        print("iteration %03d dim %03d norm : %e/%e" %(i,V.shape[1],norm,tol))
+        print(" %03d %03d %e" %(i,V.shape[1],norm))
         if norm < tol:
+            print("= Davidson has converged")
             break
-
-        #append the correction vectors to the basis
-        V = np.hstack((V,Q.T))
-        #V = np.hstack((q,Q.T))
         
-
     return theta[:neigen], q[:,:neigen]
 
 
@@ -87,17 +97,20 @@ if __name__ == "__main__":
     parser.add_argument("-s","--size",type=int,help='Size of the matrix',default=100)
     parser.add_argument("-n","--neigen",type=int,help='number of eigenvalues required',default=5)
     parser.add_argument("-e","--eps",type=float,help='Sparsity of the matrix',default=1E-2)
+    parser.add_argument("-j","--jacobi",action="store_true",help='jacobi correction')
     args = parser.parse_args()
 
     N = args.size
     eps = args.eps
     neigen = args.neigen
+    dojacobi = args.jacobi
 
-    
+    # create the matrix
     A = digaonal_dominant(N,eps)
 
+    # begin Davidson diagonalization
     start_davidson = time.time()
-    eigenvalues, eigenvectors = davidson_solver(A,neigen)
+    eigenvalues, eigenvectors = davidson_solver(A,neigen,jacobi=dojacobi)
     end_davidson = time.time()
     print("davidson : ", end_davidson - start_davidson, " seconds")
 
@@ -105,7 +118,7 @@ if __name__ == "__main__":
     start_numpy = time.time()
     E,Vec = np.linalg.eigh(A)
     end_numpy = time.time()
-    print("numpy : ", end_numpy - start_numpy, " seconds")
+    print("numpy    : ", end_numpy - start_numpy, " seconds")
 
     for i in range(neigen):
         print("%d % f  % f" %(i,eigenvalues[i],E[i]))
