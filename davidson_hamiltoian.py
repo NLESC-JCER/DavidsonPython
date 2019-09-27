@@ -16,9 +16,7 @@ def diag_non_tda(n,sparsity=1E-4):
 
     A = digaonal_dominant(n)
     C = sparsity*np.random.rand(n,n)
-
     return np.block([ [A,C],[-C.T,-A.T] ])
-
 
 
 def jacobi_correction(uj,A,thetaj):
@@ -30,13 +28,17 @@ def jacobi_correction(uj,A,thetaj):
     return np.linalg.solve(w,rj)
 
 
-def get_initial_guess(A,neigen):
+def get_initial_guess(A,nvec):
+
     nrows, ncols = A.shape
+    half = int(ncols/2)
     d = np.diag(A)
     index = np.argsort(d)
-    guess = np.zeros((nrows,neigen))
-    for i in range(neigen):
-        guess[index[i],i] = 1
+    guess = np.zeros((nrows,nvec))
+    shift = int(0.25*nvec)
+
+    for i in range(nvec):
+        guess[index[half+i-shift],i] = 1
     
     return guess
 
@@ -84,7 +86,7 @@ def davidson_solver(A, neigen, tol=1E-6, itermax = 1000, jacobi=False):
     #invA2 = np.dot(invA,invA)
     #invA3 = np.dot(invA2,invA)
 
-    norm = np.zeros(neigen)
+    norm = np.zeros(2*neigen)
 
     # Begin block Davidson routine
     print("iter size norm (%e)" %tol)
@@ -95,31 +97,37 @@ def davidson_solver(A, neigen, tol=1E-6, itermax = 1000, jacobi=False):
         V,R = np.linalg.qr(V)
 
         # form the projected matrix 
-        T = np.dot(V.T,np.dot(A,V))
-
+        T = np.dot(V.conj().T,np.dot(A,V))
+        print(np.diag(T))
 
         # Diagonalize the projected matrix
-        theta,s = np.linalg.eigh(T)
+        theta,s = np.linalg.eig(T)
+
+        # organize the eigenpairs
+        index = np.argsort(theta.real)
+        theta  = theta[index]
+        s = s[:,index]
 
         # Ritz eigenvector
         q = np.dot(V,s)
 
         # compute the residual append append it to the 
         # set of eigenvectors
-        
-        for j in range(neigen):
+        ind0 = np.where(theta>0,theta,np.inf).argmin()
+        for jj in range(2*neigen):
+
+
+            j = ind0 + jj - int(0.25*2*neigen)
 
             # residue vetor
             res = np.dot((A - theta[j]*I),q[:,j]) 
-            norm[j] = np.linalg.norm(res)
+            norm[jj] = np.linalg.norm(res)
 
             # correction vector
             if(jacobi):
             	delta = jacobi_correction(q[:,j],A,theta[j])
             else:
             	delta = res / (theta[j]-Adiag+1E-16)
-                #C = inv_approx_0 + theta[j]*I
-                #delta = -np.dot(C,res)
 
             delta /= np.linalg.norm(delta)
 
@@ -132,7 +140,7 @@ def davidson_solver(A, neigen, tol=1E-6, itermax = 1000, jacobi=False):
             print("= Davidson has converged")
             break
         
-    return theta[:neigen], q[:,:neigen]
+    return theta[ind0:ind0+neigen], q[:,ind0:ind0+neigen]
 
 
 if __name__ == "__main__":
@@ -155,8 +163,8 @@ if __name__ == "__main__":
     dojacobi = args.jacobi
 
     # create the matrix
-    A = digaonal_dominant(N,eps)
-    #A = diag_non_tda(N,eps)
+    #A = digaonal_dominant(N,eps)
+    A = diag_non_tda(N,eps)
     #A = reorder_matrix(np.loadtxt('bse_singlet.dat'))
     #A = np.loadtxt('bse_singlet.dat')
 
@@ -168,7 +176,10 @@ if __name__ == "__main__":
 
     # Begin Numpy diagonalization of A
     start_numpy = time.time()
-    E,Vec = np.linalg.eigh(A)
+    E,Vec = np.linalg.eig(A)
+    E = np.sort(E)
+    E = E[E>0]
+
     end_numpy = time.time()
     print("numpy    : ", end_numpy - start_numpy, " seconds")
 

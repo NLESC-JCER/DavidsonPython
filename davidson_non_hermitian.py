@@ -6,19 +6,10 @@ def digaonal_dominant(n,sparsity=1E-4):
     
     A = np.zeros((n,n))
     for i in range(0,n):
-        A[i,i] = 1E3*np.random.rand() 
+        A[i,i] = np.random.rand() 
         #A[i,i] = i+1
     A = A + sparsity*np.random.randn(n,n) 
-    A = (A.T + A)/2 
     return A
-
-def diag_non_tda(n,sparsity=1E-4):
-
-    A = digaonal_dominant(n)
-    C = sparsity*np.random.rand(n,n)
-
-    return np.block([ [A,C],[-C.T,-A.T] ])
-
 
 
 def jacobi_correction(uj,A,thetaj):
@@ -79,11 +70,6 @@ def davidson_solver(A, neigen, tol=1E-6, itermax = 1000, jacobi=False):
     print("= Davidson Solver ")
     print('='*20)
 
-    #invA = np.linalg.inv(A)
-    #inv_approx_0 = 2*I - A
-    #invA2 = np.dot(invA,invA)
-    #invA3 = np.dot(invA2,invA)
-
     norm = np.zeros(neigen)
 
     # Begin block Davidson routine
@@ -95,11 +81,17 @@ def davidson_solver(A, neigen, tol=1E-6, itermax = 1000, jacobi=False):
         V,R = np.linalg.qr(V)
 
         # form the projected matrix 
-        T = np.dot(V.T,np.dot(A,V))
+        T = np.dot(V.conj().T,np.dot(A,V))
 
 
         # Diagonalize the projected matrix
-        theta,s = np.linalg.eigh(T)
+        theta,s = np.linalg.eig(T)
+
+        # organize the eigenpairs
+        index = np.argsort(theta.real)
+        theta  = theta[index]
+        s = s[:,index]
+
 
         # Ritz eigenvector
         q = np.dot(V,s)
@@ -168,9 +160,12 @@ if __name__ == "__main__":
 
     # Begin Numpy diagonalization of A
     start_numpy = time.time()
-    E,Vec = np.linalg.eigh(A)
+    E,Vec = np.linalg.eig(A)
     end_numpy = time.time()
     print("numpy    : ", end_numpy - start_numpy, " seconds")
+
+    eigenvalues = np.sort(eigenvalues)
+    E = np.sort(E)
 
     for i in range(neigen):
         print("%d % f  % f" %(i,eigenvalues[i],E[i]))
